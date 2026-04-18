@@ -3,7 +3,9 @@
 
 > A fully accessible, hands-free email client. No keyboard. No mouse. Just your voice.
 
-Built from the PRD specification using a **Voice-In, Voice-Out (VIVO)** interaction model — the application speaks to the user and listens for voice commands continuously, with no visual interaction required.
+A voice-operated email application designed for visually impaired users.  
+Supports reading, composing, and sending emails using voice commands.
+
 
 ---
 
@@ -41,13 +43,11 @@ voicemail/
 | `"open first email"` / `"open second email"` | Opens email by position |
 | `"read this email"` / `"read aloud"` | Reads full email body |
 | `"next email"` / `"previous email"` | Navigate between emails |
-| `"summarize"` | AI-powered 2-sentence summary |
 | `"reply"` | Opens compose with reply context |
 | `"forward"` | Forwards current email |
 | `"compose email to [name/address]"` | Opens compose |
 | `"set subject [text]"` | Sets subject field |
 | `"my message is [text]"` | Sets message body |
-| `"AI draft"` / `"write for me"` | Claude drafts the email |
 | `"send"` | Sends the email |
 | `"delete"` | Moves email to trash |
 | `"mark important"` | Stars the email |
