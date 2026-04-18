@@ -1,0 +1,1407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VoiceMail — Email for the Visually Impaired</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&display=swap" rel="stylesheet">
+<style>
+/* ── Reset & Base ───────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:       #0a0a0f;
+  --surface:  #111118;
+  --card:     #16161f;
+  --border:   #2a2a3a;
+  --accent:   #6c63ff;
+  --accent2:  #00e5ff;
+  --green:    #00ff88;
+  --red:      #ff4455;
+  --amber:    #ffaa00;
+  --text:     #f0f0f8;
+  --muted:    #7070a0;
+  --faint:    #2a2a3f;
+  --mono:     'Space Mono', monospace;
+  --sans:     'DM Sans', sans-serif;
+  --radius:   12px;
+  --ring-size: 140px;
+}
+
+body 
+ {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.6;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── Starfield background ───────────────────────────── */
+#starfield {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background: radial-gradient(ellipse at 20% 50%, #0d0d2b 0%, transparent 60%),
+              radial-gradient(ellipse at 80% 20%, #0a1a2a 0%, transparent 50%);
+}
+.star {
+  position: absolute; border-radius: 50%; background: #fff;
+  animation: twinkle var(--dur, 3s) ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+}
+@keyframes twinkle { 0%,100%{opacity:0.1} 50%{opacity:0.8} }
+
+/* ── Layout ─────────────────────────────────────────── */
+#app { position: relative; z-index: 1; min-height: 100vh; display: flex; flex-direction: column; }
+
+/* ── Screens ────────────────────────────────────────── */
+.screen { display: none; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 32px 24px; }
+.screen.active { display: flex; }
+
+/* ── Voice Ring ─────────────────────────────────────── */
+#voice-ring-wrap {
+  position: relative;
+  width: var(--ring-size); height: var(--ring-size);
+  margin: 0 auto 32px;
+  flex-shrink: 0;
+}
+#voice-ring {
+  width: 100%; height: 100%;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  transition: border-color 0.4s;
+  position: relative;
+  background: var(--card);
+}
+#voice-ring::before, #voice-ring::after {
+  content: '';
+  position: absolute; border-radius: 50%;
+  border: 1px solid transparent;
+  transition: all 0.4s;
+  animation: none;
+}
+#voice-ring.listening {
+  border-color: var(--red);
+  box-shadow: 0 0 0 0 var(--red);
+  animation: ringpulse 1.4s ease-out infinite;
+}
+#voice-ring.thinking {
+  border-color: var(--amber);
+  animation: ringpulse 0.8s ease-out infinite;
+}
+#voice-ring.speaking {
+  border-color: var(--green);
+  animation: ringpulse 1s ease-out infinite;
+}
+#voice-ring.error { border-color: var(--red); }
+#voice-ring.idle { border-color: var(--accent); }
+
+@keyframes ringpulse {
+  0% { box-shadow: 0 0 0 0 currentColor; }
+  70% { box-shadow: 0 0 0 28px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+#mic-glyph {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+#mic-glyph svg { display: block; }
+
+/* ── State label ────────────────────────────────────── */
+#state-label {
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+  margin-bottom: 16px;
+  min-height: 22px;
+  transition: color 0.3s;
+}
+#state-label.listening { color: var(--red); }
+#state-label.thinking  { color: var(--amber); }
+#state-label.speaking  { color: var(--green); }
+
+/* ── Transcript ─────────────────────────────────────── */
+#transcript-display {
+  font-size: 18px; font-style: italic;
+  color: var(--muted); text-align: center;
+  min-height: 28px; margin-bottom: 12px;
+  max-width: 560px; width: 100%;
+  transition: color 0.2s;
+}
+#transcript-display.final { color: var(--accent2); font-style: normal; }
+
+/* ── Speech Bubble ──────────────────────────────────── */
+#speech-output {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px 24px;
+  font-size: 17px;
+  line-height: 1.75;
+  max-width: 600px; width: 100%;
+  min-height: 72px;
+  color: var(--text);
+  margin-bottom: 24px;
+  position: relative;
+  overflow: hidden;
+}
+#speech-output::before {
+  content: '';
+  position: absolute; left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--accent);
+  border-radius: 3px 0 0 3px;
+  transition: background 0.3s;
+}
+#speech-output.speaking::before { background: var(--green); }
+#speech-output.thinking::before { background: var(--amber); animation: slideBar 1s linear infinite; }
+@keyframes slideBar { 0%{top:0;bottom:auto;height:30px} 50%{top:auto;bottom:0;height:30px} 100%{top:0;bottom:auto;height:30px} }
+
+/* ── Command chips ──────────────────────────────────── */
+#cmd-chips {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  justify-content: center; max-width: 600px;
+}
+.chip {
+  font-family: var(--mono);
+  font-size: 11px; padding: 5px 12px;
+  background: var(--faint);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  color: var(--muted);
+  cursor: default;
+}
+
+/* ── Email List ─────────────────────────────────────── */
+#email-screen { padding: 0; justify-content: flex-start; }
+#email-screen.active { display: flex; }
+
+#email-topbar {
+  width: 100%; background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 24px;
+  display: flex; align-items: center; gap: 16px;
+  flex-shrink: 0;
+}
+#email-topbar h2 { font-family: var(--mono); font-size: 14px; letter-spacing: 0.08em; color: var(--muted); text-transform: uppercase; flex: 1; }
+#email-topbar .badge {
+  font-family: var(--mono); font-size: 11px;
+  padding: 3px 10px; border-radius: 12px;
+  background: var(--faint); color: var(--accent);
+  border: 1px solid var(--border);
+}
+
+#email-layout {
+  display: flex; flex: 1; width: 100%; overflow: hidden; height: calc(100vh - 57px);
+}
+
+#email-sidebar {
+  width: 200px; flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 16px 0;
+  overflow-y: auto;
+}
+.folder-btn {
+  width: 100%; padding: 10px 18px;
+  background: none; border: none;
+  text-align: left; cursor: pointer;
+  font-family: var(--sans); font-size: 14px;
+  color: var(--muted); display: flex;
+  align-items: center; gap: 10px;
+  border-left: 3px solid transparent;
+  transition: all 0.15s;
+}
+.folder-btn:hover { background: var(--faint); color: var(--text); }
+.folder-btn.active { color: var(--accent); border-left-color: var(--accent); background: var(--faint); }
+.folder-count { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--accent); }
+
+#email-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+#email-list {
+  flex: 1; overflow-y: auto; padding: 12px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.email-row {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.1s;
+  position: relative;
+}
+.email-row:hover { border-color: var(--accent); }
+.email-row.selected { border-color: var(--accent); border-width: 1.5px; background: var(--faint); }
+.email-row.unread::before {
+  content: ''; position: absolute; left: 8px; top: 50%;
+  transform: translateY(-50%);
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--accent2);
+}
+.email-row.unread { padding-left: 22px; }
+.email-num { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+.email-from { font-size: 14px; font-weight: 500; color: var(--text); margin-bottom: 2px; }
+.email-row.unread .email-from { color: var(--accent2); }
+.email-subj { font-size: 14px; color: var(--muted); margin-bottom: 3px; }
+.email-prev { font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #444460; }
+.email-meta-row { display: flex; gap: 8px; align-items: center; }
+.email-time { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-left: auto; }
+
+/* ── Email Detail ───────────────────────────────────── */
+#email-detail {
+  display: none; flex-direction: column;
+  height: 100%; overflow: hidden;
+}
+#email-detail.visible { display: flex; }
+#email-list-pane { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+#email-list-pane.hidden { display: none; }
+
+#detail-header {
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
+  flex-shrink: 0;
+}
+#detail-subject { font-size: 18px; font-weight: 500; color: var(--text); margin-bottom: 6px; }
+#detail-meta { font-size: 13px; color: var(--muted); display: flex; gap: 16px; flex-wrap: wrap; }
+#detail-actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.act-btn {
+  padding: 7px 16px; font-size: 13px; font-family: var(--sans);
+  border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--faint); color: var(--text);
+  transition: all 0.15s;
+}
+.act-btn:hover { border-color: var(--accent); color: var(--accent); }
+.act-btn.danger:hover { border-color: var(--red); color: var(--red); }
+
+#detail-body {
+  flex: 1; overflow-y: auto;
+  padding: 20px; font-size: 15px;
+  line-height: 1.8; color: var(--text);
+  white-space: pre-wrap; word-break: break-word;
+}
+
+/* ── Compose ────────────────────────────────────────── */
+#compose-pane {
+  display: none; flex-direction: column;
+  height: 100%; overflow: hidden;
+}
+#compose-pane.visible { display: flex; }
+
+#compose-header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
+  display: flex; align-items: center; gap: 12px;
+  flex-shrink: 0;
+}
+#compose-header h3 { font-size: 16px; font-weight: 500; flex: 1; }
+
+#compose-form { padding: 20px; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.cfield label { display: block; font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+.cfield input, .cfield textarea {
+  width: 100%; padding: 10px 14px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text);
+  font-family: var(--sans); font-size: 15px;
+  transition: border-color 0.2s;
+}
+.cfield input:focus, .cfield textarea:focus { outline: none; border-color: var(--accent); }
+.cfield textarea { min-height: 160px; resize: vertical; line-height: 1.6; }
+
+#compose-actions { display: flex; gap: 10px; padding: 0 20px 20px; flex-shrink: 0; flex-wrap: wrap; }
+.compose-btn {
+  padding: 10px 22px; font-size: 14px; font-weight: 500;
+  border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--faint); color: var(--text);
+  transition: all 0.15s; font-family: var(--sans);
+}
+.compose-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.compose-btn.primary:hover { background: #5550e0; }
+.compose-btn:hover { border-color: var(--muted); }
+
+/* ── Voice Panel Overlay ─────────────────────────────── */
+#voice-overlay {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: linear-gradient(to top, var(--bg) 0%, transparent 100%);
+  padding: 16px 24px 24px;
+  z-index: 100;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  pointer-events: none;
+  opacity: 0; transition: opacity 0.3s;
+}
+#voice-overlay.visible { opacity: 1; pointer-events: all; }
+
+#mini-ring {
+  width: 56px; height: 56px; border-radius: 50%;
+  background: var(--card); border: 2px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  transition: border-color 0.3s;
+  cursor: pointer;
+}
+#mini-ring.listening { border-color: var(--red); animation: ringpulse 1.2s ease-out infinite; }
+#mini-ring.thinking  { border-color: var(--amber); }
+#mini-ring.speaking  { border-color: var(--green); animation: ringpulse 1s ease-out infinite; }
+
+#mini-transcript {
+  font-size: 15px; font-style: italic;
+  color: var(--muted); text-align: center;
+  max-width: 400px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 16px;
+  min-width: 200px;
+}
+
+/* ── Login Screen ───────────────────────────────────── */
+#login-screen .logo {
+  font-family: var(--mono); font-size: 32px; font-weight: 700;
+  color: var(--accent); letter-spacing: -0.02em;
+  margin-bottom: 8px;
+}
+#login-screen .tagline {
+  font-size: 16px; color: var(--muted); text-align: center;
+  margin-bottom: 48px; max-width: 380px;
+}
+#google-auth-btn {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 28px; border-radius: 10px;
+  background: var(--card); border: 1px solid var(--border);
+  color: var(--text); font-size: 15px; font-family: var(--sans);
+  cursor: pointer; transition: all 0.2s;
+  margin-bottom: 32px;
+}
+#google-auth-btn:hover { border-color: var(--accent); background: var(--faint); }
+#login-voice-hint { font-size: 13px; color: var(--muted); text-align: center; max-width: 340px; }
+
+/* ── Scrollbar ──────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ── Spinner ────────────────────────────────────────── */
+.spin { animation: spin 1s linear infinite; display: inline-block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Notification toast ──────────────────────────────── */
+#toast {
+  position: fixed; top: 20px; right: 20px; z-index: 999;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 18px;
+  font-size: 14px; color: var(--text);
+  transform: translateX(120%); transition: transform 0.3s;
+  max-width: 320px;
+}
+#toast.show { transform: translateX(0); }
+#toast.success { border-color: var(--green); }
+#toast.error   { border-color: var(--red); }
+
+/* ── Waveform bars ──────────────────────────────────── */
+#waveform { display: flex; align-items: center; gap: 3px; height: 28px; }
+.wave-bar {
+  width: 3px; border-radius: 3px;
+  background: var(--accent);
+  height: 4px; transition: height 0.1s;
+  animation: none;
+}
+.listening .wave-bar { animation: wave var(--spd, 0.6s) ease-in-out infinite alternate; }
+.speaking  .wave-bar { background: var(--green); animation: wave var(--spd, 0.5s) ease-in-out infinite alternate; }
+@keyframes wave { from { height: 4px; } to { height: var(--h, 24px); } }
+</style>
+</head>
+<body>
+<div id="starfield"></div>
+
+<div id="toast"></div>
+
+<div id="app">
+
+  <!-- ── LOGIN SCREEN ─────────────────────────────── -->
+  <section class="screen active" id="login-screen" role="main" aria-label="Login">
+    <div class="logo" aria-label="VoiceMail application">VOICEMAIL</div>
+    <p class="tagline">Fully voice-operated email for the visually impaired. No keyboard. No mouse. Just your voice.</p>
+
+    <div id="voice-ring-wrap" aria-hidden="true">
+      <div id="voice-ring" class="idle">
+        <div id="mic-glyph">
+          <div id="waveform">
+            <div class="wave-bar" style="--spd:.5s;--h:20px"></div>
+            <div class="wave-bar" style="--spd:.7s;--h:28px"></div>
+            <div class="wave-bar" style="--spd:.4s;--h:16px"></div>
+            <div class="wave-bar" style="--spd:.6s;--h:24px"></div>
+            <div class="wave-bar" style="--spd:.8s;--h:20px"></div>
+            <div class="wave-bar" style="--spd:.45s;--h:18px"></div>
+            <div class="wave-bar" style="--spd:.65s;--h:26px"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="state-label">Initializing voice...</div>
+    <div id="transcript-display" aria-live="polite"></div>
+    <div id="speech-output" aria-live="assertive" aria-atomic="true">
+      Starting up. Please wait while voice recognition initializes.
+    </div>
+
+    <button id="google-auth-btn" onclick="startGoogleAuth()" aria-label="Connect Gmail account">
+      <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.34-8.16 2.34-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+      Connect Gmail Account
+    </button>
+
+    <p id="login-voice-hint">Or say <em>"connect Gmail"</em> to begin the voice-guided setup</p>
+
+    <div id="cmd-chips" aria-label="Available commands">
+      <span class="chip">"read inbox"</span>
+      <span class="chip">"open first email"</span>
+      <span class="chip">"reply"</span>
+      <span class="chip">"compose email to..."</span>
+      <span class="chip">"summarize"</span>
+      <span class="chip">"delete"</span>
+      <span class="chip">"help"</span>
+    </div>
+  </section>
+
+  <!-- ── EMAIL SCREEN ──────────────────────────────── -->
+  <section class="screen" id="email-screen" aria-label="Email client">
+    <div id="email-topbar">
+      <h2 id="folder-label">Inbox</h2>
+      <span class="badge" id="count-badge">Loading...</span>
+    </div>
+
+    <div id="email-layout">
+      <nav id="email-sidebar" aria-label="Folders">
+        <button class="folder-btn active" data-folder="inbox" onclick="switchFolder('inbox')">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>
+          Inbox <span class="folder-count" id="inbox-count"></span>
+        </button>
+        <button class="folder-btn" data-folder="important" onclick="switchFolder('important')">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+          Important
+        </button>
+        <button class="folder-btn" data-folder="sent" onclick="switchFolder('sent')">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+          Sent
+        </button>
+        <button class="folder-btn" data-folder="drafts" onclick="switchFolder('drafts')">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+          Drafts
+        </button>
+        <button class="folder-btn" data-folder="spam" onclick="switchFolder('spam')">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+          Spam
+        </button>
+        <button class="folder-btn" data-folder="trash" onclick="switchFolder('trash')">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+          Trash
+        </button>
+      </nav>
+
+      <div id="email-main">
+        <!-- Email list pane -->
+        <div id="email-list-pane">
+          <div id="email-list" role="list" aria-label="Email list"></div>
+        </div>
+
+        <!-- Email detail pane -->
+        <div id="email-detail" role="article">
+          <div id="detail-header">
+            <div id="detail-subject" aria-label="Email subject"></div>
+            <div id="detail-meta"></div>
+            <div id="detail-actions">
+              <button class="act-btn" onclick="voiceAction('REPLY')">Reply</button>
+              <button class="act-btn" onclick="voiceAction('FORWARD')">Forward</button>
+              <button class="act-btn" onclick="voiceAction('MARK_IMPORTANT')">Mark important</button>
+              <button class="act-btn" onclick="summarizeEmail()">AI Summary</button>
+              <button class="act-btn danger" onclick="voiceAction('DELETE')">Delete</button>
+            </div>
+          </div>
+          <div id="detail-body" aria-live="polite"></div>
+        </div>
+
+        <!-- Compose pane -->
+        <div id="compose-pane">
+          <div id="compose-header">
+            <h3>Compose Email</h3>
+            <button class="act-btn" onclick="closeCompose()">Cancel</button>
+          </div>
+          <div id="compose-form">
+            <div class="cfield">
+              <label for="cTo">To</label>
+              <input type="email" id="cTo" placeholder="recipient@example.com" aria-label="Recipient email address">
+            </div>
+            <div class="cfield">
+              <label for="cSubject">Subject</label>
+              <input type="text" id="cSubject" placeholder="Email subject" aria-label="Email subject">
+            </div>
+            <div class="cfield">
+              <label for="cBody">Message</label>
+              <textarea id="cBody" placeholder="Dictate your message or say 'write email about [topic]' for AI drafting" aria-label="Email message body"></textarea>
+            </div>
+          </div>
+          <div id="compose-actions">
+            <button class="compose-btn primary" onclick="sendEmail()" aria-label="Send email">Send</button>
+            <button class="compose-btn" onclick="aiDraftEmail()" aria-label="Use AI to draft email">AI Draft</button>
+            <button class="compose-btn" onclick="closeCompose()" aria-label="Discard draft">Discard</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Floating voice overlay -->
+    <div id="voice-overlay" class="visible">
+      <div id="mini-ring" class="idle" aria-hidden="true" onclick="toggleListen()">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
+          <rect x="9" y="2" width="6" height="12" rx="3"/>
+          <path d="M5 10a7 7 0 0014 0" stroke="white" stroke-width="2" fill="none" stroke-linecap="round"/>
+          <line x1="12" y1="19" x2="12" y2="22" stroke="white" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div id="mini-transcript" aria-live="polite">Listening...</div>
+    </div>
+  </section>
+
+</div><!-- end #app -->
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════════════════════════════════════════
+const API = window.API_BASE || 'http://localhost:3001';
+const USE_DEMO = false; // Set to false when backend is running
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DEMO DATA (used when USE_DEMO = true)
+// ═══════════════════════════════════════════════════════════════════════════
+const DEMO_EMAILS = [
+  { id:'1', unread:true, from:'Sarah Chen <sarah.chen@company.com>', subject:'Q3 Budget Review — Action Required', snippet:'Please confirm the department figures by Friday. We need to submit to finance.', body:'Hi,\n\nI wanted to follow up on the budget review meeting we had last week. We need to finalize the Q3 numbers by Friday.\n\nCould you please review the attached spreadsheet and confirm the figures for your department? Key items: travel expenses, software license renewals, and headcount changes.\n\nPlease let me know if you have questions.\n\nBest,\nSarah', date:'10:32 AM', folder:'inbox' },
+  { id:'2', unread:true, from:'Dr. Patel <r.patel@hospital.org>', subject:'Appointment Reminder — Tuesday 3PM', snippet:'Please arrive 15 minutes early and bring your insurance card and medications.', body:'Dear Patient,\n\nThis is a reminder for your appointment with Dr. Patel on Tuesday at 3:00 PM.\n\nPlease arrive 15 minutes early to complete paperwork. Bring your insurance card, medication list, and any recent test results.\n\nTo reschedule, call 555-234-5678 at least 24 hours in advance.\n\nCity Medical Center', date:'9:15 AM', folder:'inbox' },
+  { id:'3', unread:false, from:'Mom <mom@gmail.com>', subject:'Dinner this Sunday?', snippet:'Making your favourite — dal makhani and garlic naan. Dad is asking about you.', body:'Hi sweetheart,\n\nJust checking if you\'re free for dinner this Sunday. I\'m making your favourite — dal makhani and garlic naan. Your dad is also asking about you.\n\nCould do 7 PM? Let me know.\n\nLove you,\nMom', date:'Yesterday', folder:'inbox' },
+  { id:'4', unread:true, from:'Dev Team <devs@startup.io>', subject:'Deployment complete — v2.4.1 is live', snippet:'All tests passed. Zero downtime deployment successful. Monitoring looks clean.', body:'Hey team,\n\nJust pushed v2.4.1 to production. All 847 tests passed. Zero-downtime deployment took 3 minutes 12 seconds. Monitoring dashboards look clean.\n\nKey changes:\n- Fixed the auth token refresh bug\n- Performance improvements on the search endpoint (2x faster)\n- Updated dependencies\n\nRelease notes in Confluence.\n\nCheers,\nDev Team', date:'Yesterday', folder:'inbox' },
+  { id:'5', unread:false, from:'Me <you@gmail.com>', subject:'Meeting Notes — Product Sync Oct 7', snippet:'Launch confirmed November 15. Design review Monday. Accessibility audit before launch.', body:'Hi team,\n\nKey points from today\'s product sync:\n- Launch date confirmed: November 15th\n- Copy deadline: October 20th\n- Design review: next Monday\n- Accessibility audit to be completed before launch\n\nAction items in Jira. Update tickets by Thursday.\n\nThanks', date:'Monday', folder:'sent' },
+];
+
+// ═══════════════════════════════════════════════════════════════════════════
+// APPLICATION STATE
+// ═══════════════════════════════════════════════════════════════════════════
+const S = {
+  screen: 'login',       // login | email
+  folder: 'inbox',
+  emails: [],
+  currentIndex: -1,
+  view: 'list',          // list | detail | compose
+  compose: { to:'', subject:'', body:'', replyToId:null, replyToEmail:null },
+  recognition: null,
+  isListening: false,
+  isSpeaking: false,
+  user: null,
+  speakQueue: [],
+  speakingNow: false,
+};
+
+const synth = window.speechSynthesis;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STARFIELD
+// ═══════════════════════════════════════════════════════════════════════════
+(function() {
+  const sf = document.getElementById('starfield');
+  for (let i = 0; i < 80; i++) {
+    const s = document.createElement('div');
+    s.className = 'star';
+    s.style.cssText = `width:${Math.random()*2+1}px;height:${Math.random()*2+1}px;left:${Math.random()*100}%;top:${Math.random()*100}%;--dur:${2+Math.random()*4}s;--delay:${Math.random()*4}s;opacity:0.1`;
+    sf.appendChild(s);
+  }
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SPEECH SYNTHESIS (TTS)
+// ═══════════════════════════════════════════════════════════════════════════
+function speak(text, onDone) {
+  S.speakQueue.push({ text, onDone });
+  if (!S.speakingNow) _drainSpeak();
+}
+
+function _drainSpeak() {
+    if (!S.speakQueue.length) {
+        S.speakingNow = false;
+        S.isSpeaking = false;
+        setRing('listening');
+        _startListening();
+        return;
+    }
+  S.speakingNow = true;
+  S.isSpeaking = true;
+  _stopListening();
+  const { text, onDone } = S.speakQueue.shift();
+  _setBubble(text);
+  setRing('speaking');
+  setStateLabel('Speaking', 'speaking');
+  setMiniTranscript('🔊 ' + text.slice(0, 60) + (text.length > 60 ? '…' : ''));
+  synth.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = 0.9; u.pitch = 1.05; u.volume = 1;
+ u.onend = () => {
+  S.speakingNow = false;
+  S.isSpeaking = false;
+  _startListening();   // 🔥 this is the important fix
+  if (onDone) onDone();
+  _drainSpeak();
+};
+  u.onerror = () => { S.speakingNow = false; _drainSpeak(); };
+  synth.speak(u);
+}
+
+function stopSpeaking() { synth.cancel(); S.speakQueue = []; S.speakingNow = false; S.isSpeaking = false; }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SPEECH RECOGNITION (STT)
+// ═══════════════════════════════════════════════════════════════════════════
+let _restartTimer = null;
+
+function _startListening() {
+  clearTimeout(_restartTimer);
+
+  _restartTimer = setTimeout(() => {
+    if (S.recognition) {
+      try {
+        S.recognition.start();
+        S.isListening = true;
+      } catch(e) {
+        console.log("Mic restart error:", e);
+      }
+    }
+  }, 300);
+}
+function _stopListening() {
+  if (S.recognition && S.isListening) {
+    try { S.recognition.stop(); } catch(e) {}
+    S.isListening = false;
+  }
+  clearTimeout(_restartTimer);
+}
+
+function toggleListen() {
+  if (S.isListening) { _stopListening(); }
+  else { stopSpeaking(); _startListening(); }
+}
+
+function initRecognition() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    _setBubble('Voice recognition is not supported in this browser. Please use Google Chrome or Microsoft Edge.');
+    return;
+  }
+  const rec = new SR();
+  rec.lang = 'en-IN';
+  rec.interimResults = true;
+  rec.continuous = false;
+  S.recognition = rec;
+
+  rec.onstart = () => {
+    S.isListening = true;
+    setRing('listening');
+    setStateLabel('Listening...', 'listening');
+    setMiniTranscript('Listening...');
+    document.getElementById('mini-ring').className = 'listening';
+  };
+  rec.onend = () => {
+    S.isListening = false;
+    document.getElementById('mini-ring').className = 'idle';
+    if (!S.isSpeaking) _startListening();
+  };
+  rec.onerror = (e) => {
+    S.isListening = false;
+    document.getElementById('mini-ring').className = 'idle';
+    if (e.error === 'not-allowed') {
+      _setBubble('Microphone access was denied. Please allow microphone access in your browser, then reload the page.');
+      setStateLabel('Mic blocked', 'error');
+      return;
+    }
+    if (!S.isSpeaking) _startListening();
+  };
+  rec.onresult = (e) => {
+    let interim = '', final = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) final += e.results[i][0].transcript;
+      else interim += e.results[i][0].transcript;
+    }
+    if (interim) { _setTranscript(interim, false); setMiniTranscript('"' + interim + '"'); }
+    if (final) {
+      _setTranscript(final, true);
+      setMiniTranscript('"' + final + '"');
+      _stopListening();
+      handleVoiceCommand(final.trim());
+    }
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UI HELPERS
+// ═══════════════════════════════════════════════════════════════════════════
+function setRing(mode) {
+  const r = document.getElementById('voice-ring');
+  const m = document.getElementById('mini-ring');
+  if (r) r.className = mode;
+  if (m) m.className = mode;
+  const wf = document.querySelector('#waveform');
+  if (wf) wf.className = mode === 'listening' ? 'listening' : mode === 'speaking' ? 'speaking' : '';
+  const so = document.getElementById('speech-output');
+  if (so) so.className = mode;
+}
+function setStateLabel(text, cls) {
+  const el = document.getElementById('state-label');
+  if (el) { el.textContent = text; el.className = cls || ''; }
+}
+function _setBubble(text) {
+  const el = document.getElementById('speech-output');
+  if (el) el.textContent = text;
+}
+function _setTranscript(text, isFinal) {
+  const el = document.getElementById('transcript-display');
+  if (el) { el.textContent = isFinal ? text : '…' + text; el.className = isFinal ? 'final' : ''; }
+}
+function setMiniTranscript(text) {
+  const el = document.getElementById('mini-transcript');
+  if (el) el.textContent = text;
+}
+function showToast(msg, type='') {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'show ' + type;
+  setTimeout(() => { t.className = ''; }, 3500);
+}
+function showScreen(name) {
+  S.screen = name;
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(name + '-screen').classList.add('active');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// VOICE COMMAND HANDLER
+// ═══════════════════════════════════════════════════════════════════════════
+async function handleVoiceCommand(transcript) {
+  setRing('thinking');
+  setStateLabel('Processing...', 'thinking');
+  const c = transcript.toLowerCase();
+
+  // CONTEXT-AWARE DIRECT INPUT HANDLING (compose mode)
+  if (S.view === 'compose') {
+    const raw = transcript.trim();
+    const lower = raw.toLowerCase();
+
+    // CANCEL
+    if (lower.includes('cancel') || lower.includes('discard') || lower.includes('stop')) {
+      return executeAction({ action: 'CANCEL' }, transcript, lower);
+    }
+
+    // SEND
+    if (lower.includes('send')) {
+      return executeAction({ action: 'SEND' }, transcript, lower);
+    }
+
+    // TO FIELD
+    if (lower.startsWith('to') || lower.includes(' to ')) {
+      let emailText = raw
+        .replace(/^to\s+/i, '')
+        .replace(/^send to\s+/i, '')
+        .trim();
+
+      function parseEmailFromSpeech(text) {
+        return text
+          .toLowerCase()
+          .replace(/ at the rate /g, '@')
+          .replace(/ at /g, '@')
+          .replace(/ dot /g, '.')
+          .replace(/ underscore /g, '_')
+          .replace(/ dash /g, '-')
+          .replace(/ hyphen /g, '-')
+          .replace(/ plus /g, '+')
+          .replace(/\s/g, '');
+      }
+
+      let email = parseEmailFromSpeech(emailText);
+
+      document.getElementById('cTo').value = email;
+      S.compose.to = email;
+
+      speak("Recipient set");
+      _startListening();
+      return;
+    }
+
+    // SUBJECT
+    if (lower.startsWith('subject') || lower.includes('subject')) {
+      let subject = raw.replace(/^subject\s+/i, '').trim();
+
+      document.getElementById('cSubject').value = subject;
+      S.compose.subject = subject;
+
+      speak("Subject set");
+      _startListening();
+      return;
+    }
+
+    // MESSAGE
+    if (lower.startsWith('message') || lower.includes('message')) {
+      let body = raw.replace(/^message\s+/i, '').trim();
+
+      document.getElementById('cBody').value = body;
+      S.compose.body = body;
+
+      speak("Message written");
+      _startListening();
+      return;
+    }
+
+    speak("Say to, subject, or message");
+    _startListening();
+    return;
+  }
+
+  // Parse via AI (or demo local parsing)
+  const action = await parseCommand(transcript, c);
+  await executeAction(action, transcript, c);
+}
+async function parseCommand(transcript, c) {
+  // ALWAYS use local parsing (no AI dependency)
+  return localParse(c);
+}
+function localParse(c) {
+  if (c.includes('help') || c.includes('what can')) return {action:'HELP'};
+  if (c.includes('connect gmail') || c.includes('login') || c.includes('sign in')) return {action:'AUTH'};
+  if (c.includes('logout') || c.includes('sign out')) return {action:'LOGOUT'};
+
+  if (c.includes('read inbox') || c.includes('check mail') || c.includes('check email') || c.includes('open inbox')) return {action:'READ_INBOX', folder:'inbox'};
+  if (c.includes('read sent') || c.includes('open sent')) return {action:'READ_INBOX', folder:'sent'};
+  if (c.includes('read spam')) return {action:'READ_INBOX', folder:'spam'};
+  if (c.includes('read trash')) return {action:'READ_INBOX', folder:'trash'};
+  if (c.includes('important')) return {action:'READ_INBOX', folder:'important'};
+
+  const om = c.match(/open (first|second|third|fourth|fifth|1st|2nd|3rd|4th|5th|email (\d+)|number (\d+))/);
+  if (om) {
+    let idx=0;
+    if (c.includes('second')||c.includes('2nd')) idx=1;
+    else if (c.includes('third')||c.includes('3rd')) idx=2;
+    else if (c.includes('fourth')||c.includes('4th')) idx=3;
+    else if (c.includes('fifth')||c.includes('5th')) idx=4;
+    const nm = c.match(/(?:email |number )(\d+)/);
+    if (nm) idx = parseInt(nm[1])-1;
+    return {action:'OPEN_EMAIL', index: idx+1};
+  }
+
+  if (c.includes('read this') || c.includes('read email') || c.includes('read aloud') || c.includes('read it')) return {action:'READ_EMAIL'};
+  if (c.includes('next email') || c.includes('next message')) return {action:'NEXT_EMAIL'};
+  if (c.includes('previous email') || c.includes('prev email') || c.includes('go back')) return {action:'PREV_EMAIL'};
+  if (c.includes('summarize') || c.includes('summary') || c.includes('short version')) return {action:'SUMMARIZE'};
+  if (c.includes('reply')) return {action:'REPLY'};
+  if (c.includes('forward')) return {action:'FORWARD'};
+  if (c.includes('delete') || c.includes('trash this')) return {action:'DELETE'};
+  if (c.includes('mark important') || c.includes('star')) return {action:'MARK_IMPORTANT'};
+  if (c.includes('send') && S.view==='compose') return {action:'SEND'};
+  if (c.includes('discard') || c.includes('cancel') || c.includes('never mind')) return {action:'CANCEL'};
+
+  const composeM = c.match(/^compose (?:email|mail)$/);
+  const writeM = c.match(/^(?:write email|send email|new email|new message)$/);
+  if (composeM || writeM) {
+    return { action: 'COMPOSE', to: '' };
+  }
+  const composeWithTo = c.match(/compose (?:email|mail) to (.+)/);
+  if (composeWithTo) {
+    return { action: 'COMPOSE', to: composeWithTo[1] };
+  }
+
+  if (c.includes('set subject') || c.includes('subject is')) {
+    const subj = c.replace(/set subject|subject is/,'').trim();
+    return {action:'SET_SUBJECT', subject: subj};
+  }
+  if (c.includes('set to') || c.includes('send to') || c.includes('to field')) {
+    const to = c.replace(/set to|send to|to field/,'').trim();
+    return {action:'SET_TO', to};
+  }
+  if (c.includes('write email about') || c.includes('write about') || c.includes('draft about') || c.includes('my message is') || c.includes('message is') || c.includes('message says')) {
+    const body = c.replace(/write email about|write about|draft about|my message is|message is|message says/,'').trim();
+    return {action:'SET_BODY', body};
+  }
+  if (c.includes('ai draft') || c.includes('ai write') || c.includes('write for me')) return {action:'AI_DRAFT'};
+  if (c.includes('how many') || c.includes('count email')) return {action:'COUNT'};
+  if (c.includes('who sent') || c.includes('who is this from') || c.includes('sender')) return {action:'WHO_SENT'};
+  if (c.includes('search')) {
+    const q = c.replace(/search(?: for)?/,'').trim();
+    return {action:'SEARCH', query: q};
+  }
+
+  return {action:'UNKNOWN'};
+}
+
+async function executeAction(action, transcript, c) {
+  switch(action.action) {
+    case 'HELP': return doHelp();
+    case 'AUTH': return startGoogleAuth();
+    case 'LOGOUT': return doLogout();
+    case 'READ_INBOX': return doReadFolder(action.folder||'inbox');
+    case 'OPEN_EMAIL': return doOpenEmail(action.index);
+    case 'READ_EMAIL': return doReadAloud();
+    case 'NEXT_EMAIL': return doNextEmail();
+    case 'PREV_EMAIL': return doPrevEmail();
+    case 'SUMMARIZE': return doSummarize();
+    case 'REPLY': return doReply();
+    case 'FORWARD': return doForward();
+    case 'DELETE': return doDelete();
+    case 'MARK_IMPORTANT': return doMarkImportant();
+    case 'COMPOSE': return doCompose(action.to||'');
+    case 'SET_TO': return doSetField('to', action.to||'');
+    case 'SET_SUBJECT': return doSetField('subject', action.subject||'');
+    case 'SET_BODY': return doSetBody(action.body||transcript);
+    case 'AI_DRAFT': return doAiDraft();
+    case 'SEND': return sendEmail();
+    case 'CANCEL': return closeCompose();
+    case 'COUNT': return doCount();
+    case 'WHO_SENT': return doWhoSent();
+    case 'SEARCH': return doSearch(action.query||transcript);
+    default: return doUnknown(transcript);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EMAIL ACTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+async function loadEmails(folder) {
+  if (USE_DEMO) {
+    S.emails = DEMO_EMAILS.filter(e => e.folder === (folder==='inbox'?'inbox':folder==='sent'?'sent':'inbox'));
+    renderEmailList();
+    return;
+  }
+  try {
+    const res = await fetch(`${API}/emails/${folder}`, { credentials:'include' });
+    const data = await res.json();
+    S.emails = data.emails || [];
+    renderEmailList();
+    updateBadge();
+  } catch(e) {
+    S.emails = [];
+    speak('Could not load emails. Please check your connection.');
+  }
+}
+
+function renderEmailList() {
+  const list = document.getElementById('email-list');
+  list.innerHTML = '';
+  if (!S.emails.length) {
+    list.innerHTML = `<div style="padding:48px;text-align:center;color:#444460;font-size:15px;">No emails in ${S.folder}</div>`;
+    return;
+  }
+  S.emails.forEach((e, i) => {
+    const from = e.from || e.sender || 'Unknown';
+    const fromName = from.replace(/<.*>/, '').trim() || from;
+    const row = document.createElement('div');
+    row.className = `email-row${e.unread?' unread':''}${S.currentIndex===i?' selected':''}`;
+    row.setAttribute('role','listitem');
+    row.setAttribute('aria-label',`Email ${i+1}: ${e.unread?'Unread. ':''}From ${fromName}. Subject: ${e.subject}`);
+    row.innerHTML = `
+      <div class="email-num">${i+1} of ${S.emails.length}</div>
+      <div class="email-from">${fromName}</div>
+      <div class="email-subj">${e.subject||'(no subject)'}</div>
+      <div class="email-meta-row">
+        <span class="email-prev">${e.snippet||''}</span>
+        <span class="email-time">${e.date||e.time||''}</span>
+      </div>`;
+    row.onclick = () => doOpenEmail(i+1);
+    list.appendChild(row);
+  });
+  updateBadge();
+}
+
+function updateBadge() {
+  const unread = S.emails.filter(e=>e.unread).length;
+  const badge = document.getElementById('count-badge');
+  const ic = document.getElementById('inbox-count');
+  if (badge) badge.textContent = `${S.emails.length} emails · ${unread} unread`;
+  if (ic && S.folder==='inbox') ic.textContent = unread||'';
+}
+
+async function doReadFolder(folder) {
+  S.folder = folder;
+  S.currentIndex = -1;
+  S.view = 'list';
+  showEmailListPane();
+  document.querySelectorAll('.folder-btn').forEach(b => b.classList.toggle('active', b.dataset.folder===folder));
+  document.getElementById('folder-label').textContent = folder.charAt(0).toUpperCase()+folder.slice(1);
+  await loadEmails(folder);
+  const unread = S.emails.filter(e=>e.unread).length;
+  speak(`${folder}. ${S.emails.length} emails, ${unread} unread. ${S.emails.length>0?`First is from ${nameOnly(S.emails[0].from||S.emails[0].sender)}, subject: ${S.emails[0].subject}. Say open first email to read it.`:''}`);
+}
+
+async function doOpenEmail(oneBasedIndex) {
+  const idx = oneBasedIndex - 1;
+  if (idx < 0 || idx >= S.emails.length) {
+    speak(`Email ${oneBasedIndex} not found. You have ${S.emails.length} emails in ${S.folder}.`); return;
+  }
+  S.currentIndex = idx;
+  S.view = 'detail';
+  const e = S.emails[idx];
+
+  // Fetch full body
+  let body = e.body || e.snippet || '';
+  if (!e.body && !USE_DEMO) {
+    try {
+      const res = await fetch(`${API}/emails/message/${e.id}`, { credentials:'include' });
+      const data = await res.json();
+      body = data.body || data.snippet || '';
+      S.emails[idx] = { ...e, ...data };
+    } catch(_) {}
+  }
+  e.unread = false;
+
+  showDetailPane();
+  document.getElementById('detail-subject').textContent = e.subject || '(no subject)';
+  document.getElementById('detail-meta').innerHTML = `<span>From: ${e.from||e.sender||''}</span><span>${e.date||e.time||''}</span>`;
+  document.getElementById('detail-body').textContent = body;
+  renderEmailList();
+  speak(`Email ${idx+1} of ${S.emails.length}. From ${nameOnly(e.from||e.sender)}. Subject: ${e.subject}. ${cleanForSpeech(body)}. End of email. Say reply, delete, summarize, next email, or previous email.`);
+}
+
+function doReadAloud() {
+  if (S.currentIndex < 0) { speak('No email is open. Say open first email.'); return; }
+  const e = S.emails[S.currentIndex];
+  speak(`From: ${e.from||e.sender}. Subject: ${e.subject}. ${cleanForSpeech(e.body||e.snippet)}.`);
+}
+
+function doNextEmail() {
+  if (S.currentIndex < S.emails.length - 1) doOpenEmail(S.currentIndex + 2);
+  else speak('You are at the last email.');
+}
+
+function doPrevEmail() {
+  if (S.currentIndex > 0) doOpenEmail(S.currentIndex);
+  else if (S.currentIndex === 0) speak('You are already at the first email.');
+  else speak('No email is open. Say open first email.');
+}
+
+async function doSummarize() {
+  if (S.currentIndex < 0) { speak('Please open an email first.'); return; }
+  const e = S.emails[S.currentIndex];
+  setRing('thinking');
+  speak('Summarizing the email, please wait.');
+
+  if (USE_DEMO) {
+    const s = await callClaude(`Summarize this email in 2 spoken sentences. No markdown. No special characters.\n\nFrom: ${e.from||e.sender}\nSubject: ${e.subject}\n${e.body||e.snippet}`);
+    speak(`Summary: ${s}`);
+    return;
+  }
+  try {
+    const res = await fetch(`${API}/ai/summarize`, {
+      method:'POST', credentials:'include',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ email: e })
+    });
+    const data = await res.json();
+    speak(`Summary: ${data.summary}`);
+  } catch(err) { speak('Could not summarize. Please try again.'); }
+}
+
+function doReply() {
+  if (S.currentIndex < 0) { speak('Please open an email first.'); return; }
+  const e = S.emails[S.currentIndex];
+  S.compose = { to: e.email||extractEmail(e.from||e.sender), subject:'Re: '+e.subject, body:'', replyToId:e.id, replyToEmail:e };
+  showComposePaneUI();
+  speak(`Composing reply to ${nameOnly(e.from||e.sender)}. Subject is already set to Re: ${e.subject}. Please dictate your message now, then say send. Or say AI draft to have AI write it for you.`);
+}
+
+function doForward() {
+  if (S.currentIndex < 0) { speak('Please open an email first.'); return; }
+  const e = S.emails[S.currentIndex];
+  S.compose = { to:'', subject:'Fwd: '+e.subject, body:'\n\n---\n'+e.body, replyToId:null, replyToEmail:null };
+  showComposePaneUI();
+  speak(`Forwarding email with subject: ${e.subject}. Please say who to forward it to, for example say: set to, followed by the email address.`);
+}
+
+async function doDelete() {
+  if (S.currentIndex < 0) { speak('No email is open to delete.'); return; }
+  const e = S.emails[S.currentIndex];
+  if (!USE_DEMO) {
+    try { await fetch(`${API}/emails/${e.id}`, { method:'DELETE', credentials:'include' }); } catch(_) {}
+  }
+  const name = nameOnly(e.from||e.sender);
+  S.emails.splice(S.currentIndex, 1);
+  S.currentIndex = -1;
+  S.view = 'list';
+  showEmailListPane();
+  renderEmailList();
+  speak(`Email from ${name} has been deleted. ${S.emails.length} emails remain.`);
+}
+
+function doMarkImportant() {
+  if (S.currentIndex < 0) { speak('No email is open.'); return; }
+  const e = S.emails[S.currentIndex];
+  speak(`Email from ${nameOnly(e.from||e.sender)} marked as important.`);
+  showToast('Marked as important', 'success');
+}
+
+function doCompose(to) {
+  S.compose = { to, subject:'', body:'', replyToId:null, replyToEmail:null };
+  showComposePaneUI();
+  speak(`Compose window open. ${to?`Sending to ${to}.`:''} Please dictate your subject, then your message. Say send to send, or AI draft to have AI write it for you.`);
+}
+
+function doSetField(field, value) {
+  if (S.view !== 'compose') { speak('You are not in compose mode. Say compose email to open the compose window.'); return; }
+  S.compose[field] = value;
+  const el = document.getElementById('c'+field.charAt(0).toUpperCase()+field.slice(1));
+  if (el) el.value = value;
+  speak(`${field} set to: ${value}. ${field==='body'?'Say send when ready.':''}`);
+}
+
+function doSetBody(body) {
+  if (S.view !== 'compose') {
+    speak('You are not composing an email. Say compose email to start a new one.');
+    return;
+  }
+  S.compose.body = body;
+  document.getElementById('cBody').value = body;
+  speak(`Message set. Say send to send the email, or AI draft to improve it.`);
+}
+
+async function doAiDraft() {
+  if (S.view !== 'compose') { speak('Open the compose window first.'); return; }
+  speak('AI is drafting your email, please wait.');
+  setRing('thinking');
+
+  if (USE_DEMO) {
+    const draft = await callClaude(
+      S.compose.replyToEmail
+        ? `Write a short professional reply to this email from ${S.compose.replyToEmail.from}. Original: ${S.compose.replyToEmail.body}. Reply topic/draft: ${S.compose.body||'general polite acknowledgement'}`
+        : `Write a short professional email to ${S.compose.to}. Subject: ${S.compose.subject}. About: ${S.compose.body||'introduce yourself'}.`,
+      'Write only the email body. Plain text. No greetings. No special characters. Under 6 sentences.'
+    );
+    S.compose.body = draft;
+    document.getElementById('cBody').value = draft;
+    speak(`Draft ready: ${draft}. Say send to send it, or dictate a new message to replace it.`);
+    return;
+  }
+  try {
+    const res = await fetch(`${API}/ai/draft`, {
+      method:'POST', credentials:'include',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ to:S.compose.to, subject:S.compose.subject, topic:S.compose.body, replyTo:S.compose.replyToEmail })
+    });
+    const data = await res.json();
+    S.compose.body = data.draft;
+    document.getElementById('cBody').value = data.draft;
+    speak(`AI draft ready: ${data.draft}. Say send to send it.`);
+  } catch(e) { speak('AI drafting failed. Please dictate your message manually.'); }
+}
+
+async function sendEmail() {
+  if (S.view !== 'compose') { speak('You are not composing an email.'); return; }
+  const to = S.compose.to || document.getElementById('cTo').value;
+  const subject = S.compose.subject || document.getElementById('cSubject').value;
+  const body = S.compose.body || document.getElementById('cBody').value;
+  if (!to) { speak('Please set the recipient. Say: set to, followed by the email address.'); return; }
+  if (!body) { speak('The message is empty. Please dictate your message or say AI draft.'); return; }
+
+  if (!USE_DEMO) {
+    try {
+      await fetch(`${API}/emails/send`, {
+        method:'POST', credentials:'include',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ to, subject, body, replyToId: S.compose.replyToId })
+      });
+    } catch(e) {}
+  }
+  speak(`Email sent to ${to}. Subject: ${subject||'no subject'}.`);
+  showToast('Email sent!', 'success');
+  closeCompose();
+}
+
+function doCount() {
+  const unread = S.emails.filter(e=>e.unread).length;
+  speak(`You have ${S.emails.length} emails in ${S.folder}. ${unread} are unread.`);
+}
+
+function doWhoSent() {
+  if (S.currentIndex < 0) { speak('No email is open.'); return; }
+  const e = S.emails[S.currentIndex];
+  speak(`This email is from ${e.from||e.sender}.`);
+}
+
+async function doSearch(query) {
+  speak(`Searching for: ${query}. Please wait.`);
+  if (USE_DEMO) {
+    const results = DEMO_EMAILS.filter(e => e.subject.toLowerCase().includes(query.toLowerCase()) || (e.body||'').toLowerCase().includes(query.toLowerCase()) || (e.from||'').toLowerCase().includes(query.toLowerCase()));
+    if (!results.length) { speak('No results found for ' + query); return; }
+    speak(`Found ${results.length} results for ${query}. First result: from ${nameOnly(results[0].from)}, subject: ${results[0].subject}.`);
+    S.emails = results;
+    renderEmailList();
+    return;
+  }
+  try {
+    const res = await fetch(`${API}/ai/search`, { method:'POST', credentials:'include', headers:{'Content-Type':'application/json'}, body: JSON.stringify({query}) });
+    const data = await res.json();
+    if (!data.results.length) { speak('No emails found for: '+query); return; }
+    speak(`Found ${data.count} emails for ${query}. First: from ${nameOnly(data.results[0].from)}, subject: ${data.results[0].subject}.`);
+    S.emails = data.results;
+    renderEmailList();
+  } catch(e) { speak('Search failed. Please try again.'); }
+}
+
+function doHelp() {
+  speak('Here are the available commands. Say read inbox to hear your emails. Say open first email, open second email, and so on to open a specific email. Say read this email to hear the full message. Say next email or previous email to navigate. Say reply to reply to the current email. Say compose email to, followed by a name, to write a new email. Say AI draft to have AI write the email for you. Say set subject, or set to, to fill in those fields. Say send to send. Say summarize for an AI summary. Say delete to delete the current email. Say mark important to star it. Say search followed by a topic to search. Say logout to sign out. Say help anytime to hear these commands again.');
+}
+
+function doLogout() {
+  if (!USE_DEMO) fetch(`${API}/auth/logout`, { method:'POST', credentials:'include' }).catch(()=>{});
+  S.user = null; S.screen = 'login';
+  showScreen('login');
+  speak('You have been logged out. Goodbye.');
+}
+
+async function doUnknown(transcript) {
+  const answer = await callClaude(
+    `The user is blind and using a voice email app. They said: "${transcript}". Current state: ${S.view} view, ${S.folder} folder. Give a brief helpful spoken response. Suggest a specific command they can say next. No markdown.`,
+    'You are a voice email assistant for a blind person. Respond in 1-3 natural sentences.'
+  );
+  speak(answer);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UI TRANSITIONS
+// ═══════════════════════════════════════════════════════════════════════════
+function showEmailListPane() {
+  document.getElementById('email-list-pane').classList.remove('hidden');
+  document.getElementById('email-detail').classList.remove('visible');
+  document.getElementById('compose-pane').classList.remove('visible');
+  S.view = 'list';
+}
+
+function showDetailPane() {
+  document.getElementById('email-list-pane').classList.add('hidden');
+  document.getElementById('email-detail').classList.add('visible');
+  document.getElementById('compose-pane').classList.remove('visible');
+  S.view = 'detail';
+}
+
+function showComposePaneUI() {
+  document.getElementById('email-list-pane').classList.add('hidden');
+  document.getElementById('email-detail').classList.remove('visible');
+  document.getElementById('compose-pane').classList.add('visible');
+  document.getElementById('cTo').value = S.compose.to || '';
+  document.getElementById('cSubject').value = S.compose.subject || '';
+  document.getElementById('cBody').value = S.compose.body || '';
+  S.view = 'compose';
+}
+
+function closeCompose() {
+  S.compose = { to:'', subject:'', body:'', replyToId:null, replyToEmail:null };
+  showEmailListPane();
+  speak('Compose cancelled. Back to email list.');
+}
+
+function voiceAction(actionName) {
+  executeAction({ action: actionName }, actionName.toLowerCase(), actionName.toLowerCase());
+}
+
+async function summarizeEmail() { await doSummarize(); }
+async function aiDraftEmail() { await doAiDraft(); }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AUTH
+// ═══════════════════════════════════════════════════════════════════════════
+async function startGoogleAuth(){
+console.log("USE_DEMO =", USE_DEMO); 
+  if (USE_DEMO) {
+    S.user = { name: 'Demo User', email: 'demo@gmail.com' };
+    showScreen('email');
+    await doReadFolder('inbox');
+    speak(`Welcome to VoiceMail. Your inbox is ready. You have ${S.emails.length} emails, ${S.emails.filter(e=>e.unread).length} unread. Say open first email to begin, or say help for all commands.`);
+    return;
+  }
+  try {
+    const res = await fetch(`${API}/auth/google`, { credentials:'include' });
+    const data = await res.json();
+    window.location.href = data.authUrl;
+  } catch(e) { speak('Could not connect to Gmail. Please ensure the backend server is running.'); }
+}
+
+async function checkAuthAndLoad() {
+  if (USE_DEMO) return; // demo mode skips auth check
+  try {
+    const res = await fetch(`${API}/auth/status`, { credentials:'include' });
+    const data = await res.json();
+    if (data.authenticated) {
+      S.user = { name: data.name, email: data.email };
+      showScreen('email');
+      await doReadFolder('inbox');
+      speak(`Welcome back, ${data.name}. Your inbox has ${S.emails.length} emails. ${S.emails.filter(e=>e.unread).length} are unread. Say open first email to begin.`);
+    }
+  } catch(e) {}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AI HELPER (for demo mode — calls Anthropic API directly)
+// ═══════════════════════════════════════════════════════════════════════════
+async function callClaude(userPrompt, systemPrompt) {
+  // DISABLED AI (FREE MODE)
+  return "I understood your command. Please try saying: read inbox, open first email, reply, or compose email.";
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UTILITY
+// ═══════════════════════════════════════════════════════════════════════════
+function nameOnly(from) {
+  if (!from) return 'Unknown';
+  return (from.match(/^([^<]+)/) || [,''])[1].trim() || from;
+}
+function extractEmail(from) {
+  const m = from.match(/<([^>]+)>/);
+  return m ? m[1] : from.trim();
+}
+function cleanForSpeech(text) {
+  if (!text) return '';
+  return text.replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').replace(/[^\w\s.,!?'-]/g,' ').slice(0, 2000);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// URL PARAMS (OAuth callback)
+// ═══════════════════════════════════════════════════════════════════════════
+function handleUrlParams() {
+  const p = new URLSearchParams(window.location.search);
+  if (p.get('auth') === 'success') {
+    S.user = { name: decodeURIComponent(p.get('name')||''), email: decodeURIComponent(p.get('email')||'') };
+    window.history.replaceState({}, '', '/');
+    showScreen('email');
+    doReadFolder('inbox').then(() => {
+      speak(`Welcome, ${S.user.name}. Gmail connected. ${S.emails.length} emails in your inbox, ${S.emails.filter(e=>e.unread).length} unread. Say open first email to begin.`);
+    });
+  } else if (p.get('auth') === 'error') {
+    window.history.replaceState({}, '', '/');
+    speak('Gmail connection failed. Please try again.');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════════════════
+window.addEventListener('load', async () => {
+  handleUrlParams();
+  await checkAuthAndLoad();
+  initRecognition();
+  setStateLabel('Initializing...', '');
+  setTimeout(() => {
+    speak("Welcome to VoiceMail, your hands-free email assistant. The app is always listening. Say connect Gmail to link your account, or say help to hear available commands. You can also click the Connect Gmail button on screen.");
+  }, 600);
+});
+
+// Switch folder helper
+async function switchFolder(folder) { await doReadFolder(folder); }
+</script>
+</body>
+</html>
