@@ -212,13 +212,5 @@ Open `frontend/index.html` in Chrome. The app will:
 | Auditory Feedback (§6) | Every action confirmed by voice |
 | Customizable Audio (§6) | `rate`, `pitch`, `volume` on SpeechSynthesisUtterance |
 
----
 
-## Author
-
-Built from: *Product Requirements Document: Voice Command Email for Visually Impaired*  
-PRD Author: Manus AI · Date: April 16, 2026
-=======
-# voicemail-project
-Voice-controlled email system for visually impaired users. Allows users to read, compose, and send emails using voice commands with Gmail integration.
 >>>>>>> bae29e1d93cea268973cdb8f659ab61523f2eaa0
